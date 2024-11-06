@@ -2,6 +2,8 @@
 # author: xiongyuanpeng
 # 2018-11-14
 #
+####
+#change NEG_POS_RATIO part, if all negative be tested then no more negative will be tested
 import argparse
 from model import *
 import datetime
@@ -12,8 +14,9 @@ import pandas as pd
 import numpy as np
 import math
 from sklearn.metrics import precision_score, recall_score, f1_score, precision_score
-from sklearn.metrics import precision_recall_curve
+from sklearn.metrics import precision_recall_curve,matthews_corrcoef
 from sklearn.metrics import average_precision_score
+from tqdm import tqdm
 
 from tensorflow.contrib.layers import l2_regularizer as l2reg
 model_dict  = {'sharedFeatureExtractor': sharedFeatureExtractor,'sharedFeatureExtractor2': sharedFeatureExtractor2, 
@@ -93,7 +96,7 @@ class M6ANet():
             ACC = 0
             #print(max_iter)
             #exit() 
-            for idx in range(max_iter):
+            for idx in tqdm(range(max_iter)):
                 #print(datetime.datetime.now())
                 seq, label = self.data_loader.get_next_train_batch()
                 #print(label)
@@ -175,7 +178,7 @@ class M6ANet():
         AUC = 0
         max_iter = math.ceil(self.data_loader.get_test_size()/batch_size)
         ACC = 0
-        for idx in range(max_iter):
+        for idx in tqdm(range(max_iter)):
             seq, label = self.data_loader.get_next_test_batch()
             label_onehot = pd.get_dummies(label).values.tolist()
             feed_dict = {self.t_sequences:seq, self.t_target:label}
@@ -190,11 +193,11 @@ class M6ANet():
             
             acc = np.sum(pred_label == label)       
 
-            if(acc < 0.7 * config.BATCH_SIZE):
-                print(pred)
-                print(pred_label) 
-                print(label) 
-                exit()
+            # if(acc < 0.7 * config.BATCH_SIZE):
+            #     print(pred)
+            #     print(pred_label)
+            #     print(label)
+            #     exit()
             #print(acc)
             #exit()
             ACC +=acc
@@ -454,7 +457,8 @@ class M6ANetShare():
         onehots = []
         probbs = [] 
         #label = []
-        for idx in range(max_iter):
+        all_predictions=[]
+        for idx in tqdm(range(max_iter)):
             feed_dict = {self.t_sequences: np.random.randn(config.BATCH_SIZE,config.TRAIN.TIME_STEPS, config.TRAIN.EMBED_DIM)}
             ACC = []
             #AUC = []
@@ -473,6 +477,7 @@ class M6ANetShare():
                 #auc = metrics.roc_auc_score(np.array(label_onehot), np.array(probs), average = 'micro')
                 pred_label = np.argmax(probs, axis =1)
                 acc = np.sum(np.array(pred_label) == np.array(labels)) / len(pred_label)
+                all_predictions.extend(pred_label)
                 
                 #AUC.append(auc)
                 ACC.append(acc)
@@ -484,15 +489,22 @@ class M6ANetShare():
         auc = metrics.roc_auc_score(np.array(onehots)[:,1], np.array(probbs)[:,1])
         precision, recall, _ = precision_recall_curve(np.array(onehots)[:,1], np.array(probbs)[:,1])
         from matplotlib import pyplot as plt
-        plt.step(recall, precision, color='b', alpha=0.2, where='post')
-        plt.savefig('test.png')
+        # plt.step(recall, precision, color='b', alpha=0.2, where='post')
+        # plt.savefig('test.png')
         ap = average_precision_score(np.array(onehots)[:,1], np.array(probbs)[:,1])
         ps = precision_score(np.array(onehots)[:,1], np.array(probbs)[:,1]>0.5)
+        recall = recall_score(y_true=np.array(onehots)[:,1], y_pred=np.array(probbs)[:,1]>0.5, average="binary")
+        f1 = f1_score(y_true=np.array(onehots)[:,1], y_pred=np.array(probbs)[:,1]>0.5, average="binary")
+        mcc = matthews_corrcoef(np.array(onehots)[:,1], np.array(probbs)[:,1]>0.5)
+
         print('pos num: ',sum(np.array(onehots)[:,1]))
         print('total num: ',len(np.array(onehots)[:,1]))
         print('AUC is: ', auc)
         print('AP is: ', ap)
+        print('f1 is: ', f1)
         print('Precision score is: ', ps)
+        print('MCC score is: ', mcc)
+        print('recall is: ', recall)
         if 'multi-task' in tl.global_flag['name']:
             s = '_' + config.sample_names[0]
         else:
@@ -897,17 +909,27 @@ if __name__ == '__main__':
     else:
         config.TRAIN.DROPOUT_KEEP = 0.5
     if args.data == 'full_data':
-        pos_dir = '../data/sequence_samples/positive_samples'
-        neg_dir = '../data/sequence_samples/negative_samples'
+        # pos_dir = '../data/sequence_samples/positive_samples'
+        # neg_dir = '../data/sequence_samples/negative_samples'
+        # config.train_suffix = '_1000_100'#'_100_sramp_down'#
+        # config.val_suffix ='_1000_100_self_processed'# '_100_sramp_down'#
+        # config.test_suffix = config.val_suffix#'_100_sramp'
+        # pos_dir = '../data/sequence_samples/positive_samples/test'
+        # neg_dir = '../data/sequence_samples/negative_samples/test'
+        # config.train_suffix = '_1000_100'#'_100_sramp_down'#
+        # config.val_suffix ='_1000_100_self_processed'# '_100_sramp_down'#
+        # config.test_suffix = config.val_suffix#'_100_sramp'
+        pos_dir = '../data/pos'
+        neg_dir = '../data/neg'
         config.train_suffix = '_1000_100'#'_100_sramp_down'#
-        config.val_suffix ='_1000_100_self_processed'# '_100_sramp_down'#
+        config.val_suffix ='temp.txt'# '_100_sramp_down'#
         config.test_suffix = config.val_suffix#'_100_sramp'
         config.NEG_IO_STEP = 0.03
     else:
         print(args.data)
         if 'sramp' in args.data:
-            pos_dir = '../data/sramp/positive_samples'
-            neg_dir = '../data/sramp/negative_samples'
+            pos_dir = '../data/sramp/positive_samples/test/'
+            neg_dir = '../data/sramp/negative_samples/test/'
             config.train_suffix = '_100_sramp_down'#'_1000_100'#
             config.val_suffix ='_100_sramp_down'#'_1000_100_self_processed'# 
             config.test_suffix = '_100_sramp'
@@ -937,7 +959,7 @@ if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES']= args.gpu
 
     if args.mode == 'test':
-        config.NEG_POS_RATIO = 10
+        config.NEG_POS_RATIO = 100
         if config.TRAIN.CLASSES is not 2:
             # should tansfer it to 2
             config.TRAIN.CLASSES = 2
