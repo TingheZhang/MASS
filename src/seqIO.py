@@ -34,6 +34,8 @@ class SequencesProvider:
         self.test_labels = {}
         self.test_size_dic = {}
         self.test_sample_index = {}
+        self.neg_exhausted = {} ###Introduce a neg_exhausted flag for each class, indicating when all negative samples have been exhausted.
+
         for i in range(config.TRAIN.CLASSES - 1):
             sample = self.sample_names[i]
             self.train_sample_index[sample] = [0,0]
@@ -42,6 +44,8 @@ class SequencesProvider:
             self.test_samples[sample] = []
             self.test_labels[sample] = []
             self.test_size_dic[sample] = 0
+            self.neg_exhausted[sample] = False
+
             #self.test_sample_index[sample] = 0
         # train datasets
         self.pos_lists = {}
@@ -93,29 +97,30 @@ class SequencesProvider:
             
     def _load_test(self):
 
-        pos_dir = self.pos_dir +'/test/'
-        neg_dir = self.neg_dir + '/test/'
+        pos_dir = self.pos_dir +'/'
+        neg_dir = self.neg_dir + '/'
         for i in range(config.TRAIN.CLASSES - 1):
             sample = self.sample_names[i]
-            with open(neg_dir + '%s_neg_seqs'%(sample) + self.test_suffix, 'r') as fp:
+            with open(neg_dir + self.test_suffix, 'r') as fp:
                 self.test_neg[sample] = fp.readlines()
                 #self.valid_size = max(self.valid_size, len(self.valid_neg[sample]))
             
-            with open(pos_dir + '%s_pos_seqs'%(sample) + self.test_suffix, 'r') as fp:
+            with open(pos_dir + self.test_suffix, 'r') as fp:
                 self.test_pos[sample] = fp.readlines()
                 self.test_size = max(self.test_size, len(self.test_pos[sample]))
 
     def _load_valid(self):
 
-        pos_dir = self.pos_dir +'/valid/'
-        neg_dir = self.neg_dir + '/valid/'
+        pos_dir = self.pos_dir +'/'
+        neg_dir = self.neg_dir + '/'
         for i in range(config.TRAIN.CLASSES - 1):
             sample = self.sample_names[i]
-            with open(neg_dir + '%s_neg_seqs'%(sample) + self.val_suffix, 'r') as fp:
+            # with open(neg_dir + '%s_neg_seqs'%(sample) + self.val_suffix, 'r') as fp:
+            with open(neg_dir +  self.val_suffix, 'r') as fp:
                 self.valid_neg[sample] = fp.readlines()
                 #self.valid_size = max(self.valid_size, len(self.valid_neg[sample]))
             
-            with open(pos_dir + '%s_pos_seqs'%(sample) + self.val_suffix, 'r') as fp:
+            with open(pos_dir + self.val_suffix, 'r') as fp:
                 self.valid_pos[sample] = fp.readlines()
                 self.valid_size = max(self.valid_size, len(self.valid_pos[sample]))
         
@@ -231,42 +236,113 @@ class SequencesProvider:
             samples, labels =  self._get_batch(self.pos_lists, self.neg_lists)
         return samples, labels
         
+    # def _get_next_batch_by_name_old(self, sample, pos_lists, neg_lists, sample_index):
+    #     samples, labels = None, None
+    #     BATCH = config.BATCH_SIZE
+    #     while (samples is None):
+    #         BATCH = config.BATCH_SIZE * config.NEG_POS_RATIO
+    #         if sample_index[sample][0]  + BATCH > len(neg_lists[sample]):
+    #             sample_index[sample][0] = 0
+    #         start =  sample_index[sample][0]
+    #         samples = neg_lists[sample][start:start + BATCH]#random.sample(neg_lists[sample], 5)
+    #         labels = [0,]* len(samples)
+    #
+    #         BATCH = config.BATCH_SIZE
+    #         if sample_index[sample][1]  + BATCH > len(pos_lists[sample]):
+    #             sample_index[sample][1] = 0
+    #         start =  sample_index[sample][1]
+    #
+    #         sample_tmp = pos_lists[sample][start:start+BATCH]
+    #         samples.extend(sample_tmp)#(random.sample(pos_lists[sample], 5))
+    #         labels.extend([1,]* len(sample_tmp))
+    #
+    #         samples = readList(samples)
+    #
+    #         sample_index[sample][0] +=BATCH * config.NEG_POS_RATIO
+    #         sample_index[sample][1] +=BATCH
+    #
+    #         try:
+    #             # for i in range(len(samples)):
+    #             #     np.array(samples[i], np.float32)
+    #             converted_samples = []
+    #             for i, sample in enumerate(samples):
+    #                 try:
+    #                     np_sample = np.array(sample, np.float32)
+    #                     if len(np_sample)!=101:
+    #                         np_sample = np.pad(np_sample, ((0, 101 - len(np_sample)), (0, 0)), mode='constant', constant_values=0)
+    #                     converted_samples.append(np_sample)
+    #                 except ValueError as e:
+    #                     print(f'Error converting sample {i}: {e}')
+    #                     continue
+    #
+    #             samples, labels = np.array(converted_samples, np.float32), np.array(labels, np.int32)
+    #             if len(samples) > 0:
+    #
+    #                 return samples, labels, sample_index
+    #             else:
+    #                 samples, lables = None
+    #         except:
+    #             samples, labels = None, None
+
     def _get_next_batch_by_name(self, sample, pos_lists, neg_lists, sample_index):
         samples, labels = None, None
         BATCH = config.BATCH_SIZE
         while (samples is None):
-            BATCH = config.BATCH_SIZE * config.NEG_POS_RATIO
-            if sample_index[sample][0]  + BATCH > len(neg_lists[sample]):
-                sample_index[sample][0] = 0
-            start =  sample_index[sample][0]
-            samples = neg_lists[sample][start:start + BATCH]#random.sample(neg_lists[sample], 5)            
-            labels = [0,]* len(samples)
-            
+            samples = []
+            labels = []
+            print(f'processing pos_idx {sample_index[sample][1]} neg_idx {sample_index[sample][0]}')
+            if not self.neg_exhausted[sample]:
+                neg_batch_size  = config.BATCH_SIZE * config.NEG_POS_RATIO
+                start_neg = sample_index[sample][0]
+                neg_samples = neg_lists[sample][start_neg:start_neg + neg_batch_size ]  # random.sample(neg_lists[sample], 5)
+                # labels = [0, ] * len(samples)
+                neg_labels = [0] * len(neg_samples)
+                samples.extend(neg_samples)
+                labels.extend(neg_labels)
+                if sample_index[sample][0] + neg_batch_size  > len(neg_lists[sample]):
+                    sample_index[sample][0] = len(neg_lists[sample])
+                    self.neg_exhausted[sample] = True
+                else:
+                    sample_index[sample][0] += neg_batch_size
 
-            BATCH = config.BATCH_SIZE
-            if sample_index[sample][1]  + BATCH > len(pos_lists[sample]):
+            pos_batch_size  = config.BATCH_SIZE
+            if sample_index[sample][1] + pos_batch_size  > len(pos_lists[sample]):
                 sample_index[sample][1] = 0
-            start =  sample_index[sample][1]
-            
-            sample_tmp = pos_lists[sample][start:start+BATCH]
-            samples.extend(sample_tmp)#(random.sample(pos_lists[sample], 5))
-            labels.extend([1,]* len(sample_tmp))
-            
+            start_pos  = sample_index[sample][1]
+
+            pos_sample_tmp = pos_lists[sample][start_pos:start_pos + pos_batch_size ]
+            samples.extend(pos_sample_tmp)  # (random.sample(pos_lists[sample], 5))
+            # labels.extend([1, ] * len(sample_tmp))
+            pos_labels = [1] * len(pos_sample_tmp)
+            labels.extend(pos_labels)
+
             samples = readList(samples)
-            
-            sample_index[sample][0] +=BATCH * config.NEG_POS_RATIO
-            sample_index[sample][1] +=BATCH
-            
+            sample_index[sample][1] += pos_batch_size
+
             try:
-                samples, labels = np.array(samples, np.float32), np.array(labels, np.int32)
+                # for i in range(len(samples)):
+                #     np.array(samples[i], np.float32)
+                converted_samples = []
+                for i, sample in enumerate(samples):
+                    try:
+                        np_sample = np.array(sample, np.float32)
+                        if len(np_sample) != 101:
+                            np_sample = np.pad(np_sample, ((0, 101 - len(np_sample)), (0, 0)), mode='constant',
+                                               constant_values=0)
+                        converted_samples.append(np_sample)
+                    except ValueError as e:
+                        print(f'Error converting sample {i}: {e}')
+                        continue
+
+                samples, labels = np.array(converted_samples, np.float32), np.array(labels, np.int32)
                 if len(samples) > 0:
-                
+
                     return samples, labels, sample_index
                 else:
                     samples, lables = None
             except:
                 samples, labels = None, None
-                
+
     def get_next_train_batch_by_name(self, sample):
         samples, labels, self.train_sample_index = self._get_next_batch_by_name(sample, self.pos_lists, self.neg_lists, self.train_sample_index)
         return samples, labels
