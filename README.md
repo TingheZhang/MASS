@@ -31,6 +31,7 @@ This repository has been tested on Ubuntu 16.04. We strongly recommend you to ha
 cd src
 python main.py --name mass --data full_data --sn 8 --mode test --fold 0 --gpu 0
 ```
+Noticed NEG_POS_RATIO have to be set at src/main.py (defult is neg:pos = 100:1), if all negative samples are tested then no more samples will be tested.
 
 ### Train new models
 
